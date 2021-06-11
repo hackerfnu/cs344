@@ -2,7 +2,7 @@
 #define LOADSAVEIMAGE_H__
 
 #include <string>
-#include <cuda_runtime.h> //for uchar4
+#include <hip/hip_runtime.h> //for uchar4
 
 void loadImageHDR(const std::string &filename,
                   float **imagePtr,

@@ -86,7 +86,7 @@ int main(int argc, char **argv) {
   your_histogram_and_prefixsum(d_luminance, d_cdf, min_logLum, max_logLum,
                                numRows, numCols, numBins);
   timer.Stop();
-  cudaDeviceSynchronize(); checkCudaErrors(cudaGetLastError());
+  hipDeviceSynchronize(); checkHIPErrors(hipGetLastError());
   int err = printf("Your code ran in: %f msecs.\n", timer.Elapsed());
 
   if (err < 0) {
@@ -98,7 +98,7 @@ int main(int argc, char **argv) {
   float *h_luminance = (float *) malloc(sizeof(float)*numRows*numCols);
   unsigned int *h_cdf = (unsigned int *) malloc(sizeof(unsigned int)*numBins);
 
-  checkCudaErrors(cudaMemcpy(h_luminance, d_luminance, numRows*numCols*sizeof(float), cudaMemcpyDeviceToHost));
+  checkHIPErrors(hipMemcpy(h_luminance, d_luminance, numRows*numCols*sizeof(float), hipMemcpyDeviceToHost));
 
   //check results and output the tone-mapped image
   postProcess(output_file, numRows, numCols, min_logLum, max_logLum);
@@ -110,7 +110,7 @@ int main(int argc, char **argv) {
 
   referenceCalculation(h_luminance, h_cdf, numRows, numCols, numBins, min_logLum, max_logLum);
 
-  checkCudaErrors(cudaMemcpy(d_cdf, h_cdf, sizeof(unsigned int) * numBins, cudaMemcpyHostToDevice));
+  checkHIPErrors(hipMemcpy(d_cdf, h_cdf, sizeof(unsigned int) * numBins, hipMemcpyHostToDevice));
 
   //check results and output the tone-mapped image
   postProcess(reference_file, numRows, numCols, min_logLum, max_logLum);

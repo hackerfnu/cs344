@@ -138,7 +138,7 @@ void preProcess(float** d_luminance, unsigned int** d_cdf,
                 unsigned int *numberOfBins,
                 const std::string &filename) {
   //make sure the context initializes ok
-  checkCudaErrors(cudaFree(0));
+  checkHIPErrors(hipFree(0));
 
   float *imgPtr; //we will become responsible for this pointer
   loadImageHDR(filename, &imgPtr, &numRows__, &numCols__);
@@ -165,16 +165,16 @@ void preProcess(float** d_luminance, unsigned int** d_cdf,
 
   size_t channelSize = sizeof(float) * numPixels;
 
-  checkCudaErrors(cudaMalloc(&d_red,    channelSize));
-  checkCudaErrors(cudaMalloc(&d_green,  channelSize));
-  checkCudaErrors(cudaMalloc(&d_blue,   channelSize));
-  checkCudaErrors(cudaMalloc(&d_x__,    channelSize));
-  checkCudaErrors(cudaMalloc(&d_y__,    channelSize));
-  checkCudaErrors(cudaMalloc(&d_logY__, channelSize));
+  checkHIPErrors(hipMalloc(&d_red,    channelSize));
+  checkHIPErrors(hipMalloc(&d_green,  channelSize));
+  checkHIPErrors(hipMalloc(&d_blue,   channelSize));
+  checkHIPErrors(hipMalloc(&d_x__,    channelSize));
+  checkHIPErrors(hipMalloc(&d_y__,    channelSize));
+  checkHIPErrors(hipMalloc(&d_logY__, channelSize));
 
-  checkCudaErrors(cudaMemcpy(d_red,   red,   channelSize, cudaMemcpyHostToDevice));
-  checkCudaErrors(cudaMemcpy(d_green, green, channelSize, cudaMemcpyHostToDevice));
-  checkCudaErrors(cudaMemcpy(d_blue,  blue,  channelSize, cudaMemcpyHostToDevice));
+  checkHIPErrors(hipMemcpy(d_red,   red,   channelSize, hipMemcpyHostToDevice));
+  checkHIPErrors(hipMemcpy(d_green, green, channelSize, hipMemcpyHostToDevice));
+  checkHIPErrors(hipMemcpy(d_blue,  blue,  channelSize, hipMemcpyHostToDevice));
 
   //convert from RGB space to chrominance/luminance space xyY
   const dim3 blockSize(32, 16, 1);
@@ -184,20 +184,20 @@ void preProcess(float** d_luminance, unsigned int** d_cdf,
                                       d_x__, d_y__,   d_logY__,
                                       .0001f, numRows__, numCols__);
 
-  cudaDeviceSynchronize(); checkCudaErrors(cudaGetLastError());
+  hipDeviceSynchronize(); checkHIPErrors(hipGetLastError());
 
   *d_luminance = d_logY__;
 
   //allocate memory for the cdf of the histogram
   *numberOfBins = numBins;
-  checkCudaErrors(cudaMalloc(&d_cdf__, sizeof(unsigned int) * numBins));
-  checkCudaErrors(cudaMemset(d_cdf__, 0, sizeof(unsigned int) * numBins));
+  checkHIPErrors(hipMalloc(&d_cdf__, sizeof(unsigned int) * numBins));
+  checkHIPErrors(hipMemset(d_cdf__, 0, sizeof(unsigned int) * numBins));
 
   *d_cdf = d_cdf__;
 
-  checkCudaErrors(cudaFree(d_red));
-  checkCudaErrors(cudaFree(d_green));
-  checkCudaErrors(cudaFree(d_blue));
+  checkHIPErrors(hipFree(d_red));
+  checkHIPErrors(hipFree(d_green));
+  checkHIPErrors(hipFree(d_blue));
 
   delete[] red;
   delete[] green;
@@ -213,7 +213,7 @@ void postProcess(const std::string& output_file,
 
   float *d_cdf_normalized;
 
-  checkCudaErrors(cudaMalloc(&d_cdf_normalized, sizeof(float) * numBins));
+  checkHIPErrors(hipMalloc(&d_cdf_normalized, sizeof(float) * numBins));
 
   //first normalize the cdf to a maximum value of 1
   //this is how we compress the range of the luminance channel
@@ -222,7 +222,7 @@ void postProcess(const std::string& output_file,
                                   d_cdf_normalized,
                                   numBins);
 
-  cudaDeviceSynchronize(); checkCudaErrors(cudaGetLastError());
+  hipDeviceSynchronize(); checkHIPErrors(hipGetLastError());
 
   //allocate memory for the output RGB channels
   float *h_red, *h_green, *h_blue;
@@ -232,9 +232,9 @@ void postProcess(const std::string& output_file,
   h_green = new float[numPixels];
   h_blue  = new float[numPixels];
 
-  checkCudaErrors(cudaMalloc(&d_red,   sizeof(float) * numPixels));
-  checkCudaErrors(cudaMalloc(&d_green, sizeof(float) * numPixels));
-  checkCudaErrors(cudaMalloc(&d_blue,  sizeof(float) * numPixels));
+  checkHIPErrors(hipMalloc(&d_red,   sizeof(float) * numPixels));
+  checkHIPErrors(hipMalloc(&d_green, sizeof(float) * numPixels));
+  checkHIPErrors(hipMalloc(&d_blue,  sizeof(float) * numPixels));
 
   float log_Y_range = max_log_Y - min_log_Y;
 
@@ -251,11 +251,11 @@ void postProcess(const std::string& output_file,
                                    log_Y_range, numBins,
                                    numRows, numCols);
 
-  cudaDeviceSynchronize(); checkCudaErrors(cudaGetLastError());
+  hipDeviceSynchronize(); checkHIPErrors(hipGetLastError());
 
-  checkCudaErrors(cudaMemcpy(h_red,   d_red,   sizeof(float) * numPixels, cudaMemcpyDeviceToHost));
-  checkCudaErrors(cudaMemcpy(h_green, d_green, sizeof(float) * numPixels, cudaMemcpyDeviceToHost));
-  checkCudaErrors(cudaMemcpy(h_blue,  d_blue,  sizeof(float) * numPixels, cudaMemcpyDeviceToHost));
+  checkHIPErrors(hipMemcpy(h_red,   d_red,   sizeof(float) * numPixels, hipMemcpyDeviceToHost));
+  checkHIPErrors(hipMemcpy(h_green, d_green, sizeof(float) * numPixels, hipMemcpyDeviceToHost));
+  checkHIPErrors(hipMemcpy(h_blue,  d_blue,  sizeof(float) * numPixels, hipMemcpyDeviceToHost));
 
   //recombine the image channels
   float *imageHDR = new float[numPixels * 3];
@@ -274,13 +274,13 @@ void postProcess(const std::string& output_file,
   delete[] h_blue;
 
   //cleanup
-  checkCudaErrors(cudaFree(d_cdf_normalized));
+  checkHIPErrors(hipFree(d_cdf_normalized));
 }
 
 void cleanupGlobalMemory(void)
 {
-  checkCudaErrors(cudaFree(d_x__));
-  checkCudaErrors(cudaFree(d_y__));
-  checkCudaErrors(cudaFree(d_logY__));
-  checkCudaErrors(cudaFree(d_cdf__));
+  checkHIPErrors(hipFree(d_x__));
+  checkHIPErrors(hipFree(d_y__));
+  checkHIPErrors(hipFree(d_logY__));
+  checkHIPErrors(hipFree(d_cdf__));
 }
