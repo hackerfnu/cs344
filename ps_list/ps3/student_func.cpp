@@ -125,37 +125,33 @@ void reduce(const float* d_logLuminance,float &min_logLum,float &max_logLum,cons
    int sh_mem = kBlockSize*sizeof(float);
    // Iterate until only one grid left and array reduced to one number
    while(true) {
-      std::cout<<"size:"<<size<<"\n";
       int grid_size = (kBlockSize + size - 1)/kBlockSize;
       float *d_min, *d_max;
       hipMalloc(&d_min, grid_size*sizeof(float));
       hipMalloc(&d_max, grid_size*sizeof(float));
       if(d_current_min == NULL || d_current_max == NULL) {
          // Min reduction
-         shmem_reduce<<<grid_size, kBlockSize, sh_mem>>>(d_min, d_logLuminance, false, size);
+         shmem_reduce<<<grid_size, kBlockSize, sh_mem>>>(d_min, d_logLuminance, true, size);
          // Max reduction
-         shmem_reduce<<<grid_size, kBlockSize, sh_mem>>>(d_max, d_logLuminance, true, size);
+         shmem_reduce<<<grid_size, kBlockSize, sh_mem>>>(d_max, d_logLuminance, false, size);
       } else {
          // Min reduction
-         shmem_reduce<<<grid_size, kBlockSize, sh_mem>>>(d_min, d_current_min, false, size);
+         shmem_reduce<<<grid_size, kBlockSize, sh_mem>>>(d_min, d_current_min, true, size);
          // Max reduction
-         shmem_reduce<<<grid_size, kBlockSize, sh_mem>>>(d_max, d_current_max, true, size);
+         shmem_reduce<<<grid_size, kBlockSize, sh_mem>>>(d_max, d_current_max, false, size);
       }
       hipDeviceSynchronize(); checkHIPErrors(hipGetLastError());
 		if (d_current_min != NULL) checkHIPErrors(hipFree(d_current_min));
 		if (d_current_max != NULL) checkHIPErrors(hipFree(d_current_max));
 
-
       if (grid_size == 1) {
 			//end of reduction reached
-         std::cout<<"copying!\n";
 			checkHIPErrors(hipMemcpy(&min_logLum, d_min, sizeof(float), hipMemcpyDeviceToHost));
 			checkHIPErrors(hipMemcpy(&max_logLum, d_max, sizeof(float), hipMemcpyDeviceToHost));
          hipDeviceSynchronize(); checkHIPErrors(hipGetLastError());
          return;
 		}
 
-      std::cout<<"Not copy!\n";
       size = grid_size; //Set new size of array ~ current size of grid
       if (grid_size == 0) grid_size++;
 		d_current_min = d_min; //point to new intermediate result
@@ -164,7 +160,7 @@ void reduce(const float* d_logLuminance,float &min_logLum,float &max_logLum,cons
 }
 
 __global__ void scatter_add(uint * d_out, const float *d_lum, const float lumMin, const float lumRange, const int numBins, const size_t inputSize) {
-   int globalId = blockDim.x + blockIdx.x + threadIdx.x;
+   int globalId = blockDim.x * blockIdx.x + threadIdx.x;
    if(globalId > inputSize) return;
    int binId = (d_lum[globalId] - lumMin) / lumRange * numBins;
    binId = binId == numBins ? numBins - 1 : binId; //max value bin is the last of the histo
@@ -183,8 +179,11 @@ unsigned int* compute_histogram(const float* const d_logLuminance, int numBins, 
 }
 
 //--------HILLIS-STEELE SCAN----------
+// https://developer.nvidia.com/gpugems/gpugems3/part-vi-gpu-computing/chapter-39-parallel-prefix-sum-scan-cuda
 //Optimal step efficiency (histogram is a relatively small vector)
 //Works on maximum 1024 (Pascal) elems vector.
+// Single buffer work only with a warp.
+// Double buffer only work with a block.
 __global__ void scan_hillis_steele(unsigned int* d_out,const unsigned int* d_in, int size) {
 	extern __shared__ unsigned int temp[];
 	int tid = threadIdx.x;
@@ -194,8 +193,12 @@ __global__ void scan_hillis_steele(unsigned int* d_out,const unsigned int* d_in,
 
 	//double buffered
 	for (int off = 1; off < size; off <<= 1) {
-		pout = 1 - pout;
-		pin = 1 - pout;
+      // Using 1->0->1->0 for pin and pout because:
+      // At every iteration the new output will be needed as an input.
+      // SO we set the initial(not used anymore) input buffer as the new output buffer
+      // and the new output buffer as the new input buffer.
+		pout = 1 - pout; //Set 1 -> 0 -> 1 ...
+		pin = 1 - pout; // Set 0 -> 1 -> 0 ...
 		if (tid >= off) temp[size*pout + tid] = temp[size*pin + tid]+temp[size*pin + tid - off];
 		else temp[size*pout + tid] = temp[size*pin + tid];
 		__syncthreads();
@@ -218,7 +221,6 @@ void your_histogram_and_prefixsum(const float* const d_logLuminance,
 
    // 2) subtract them to find the range
    float logLumRange = max_logLum - min_logLum;
-   std::cout<<min_logLum<<","<<max_logLum<<","<<logLumRange<<"\n";
 
    // 3) generate a histogram of all the values in the logLuminance channel using
    //  the formula: bin ID = (lum[i] - lumMin) / lumRange * numBins
